@@ -1,4 +1,4 @@
-requests 
-beautifulsoup4 
-python-telegram-bot 
-pillow
+python-telegram-bot==20.3
+beautifulsoup4
+requests
+fpdf
