@@ -38,7 +38,7 @@ def get_chapter_images(chapter_url):
             imgs.append(src)
     return imgs
 
-def download_images_to_pdf(img_urls, pdf_path):
+def download_images_to_pdf(img_urls, pdf_path, progress_callback=None):
     pdf = FPDF()
     total = len(img_urls)
     for idx, url in enumerate(img_urls, 1):
@@ -49,6 +49,8 @@ def download_images_to_pdf(img_urls, pdf_path):
         pdf.add_page()
         pdf.image(img_path, x=0, y=0, w=210)
         os.remove(img_path)
+        if progress_callback:
+            progress_callback(idx, total)
     pdf.output(pdf_path)
 
 # ------------------ Bot Handlers ------------------
@@ -62,8 +64,18 @@ async def handle_series_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not chapters:
             await update.message.reply_text("No chapters found.")
             return
-        buttons = [[InlineKeyboardButton(t[0], callback_data=t[1])] for t in chapters]
-        await update.message.reply_text("Select a chapter:", reply_markup=InlineKeyboardMarkup(buttons))
+
+        # Store chapters in user_data
+        context.user_data["chapters"] = chapters
+
+        buttons = [
+            [InlineKeyboardButton(f"{idx+1}. {chap[0]}", callback_data=str(idx))]
+            for idx, chap in enumerate(chapters[:20])  # show first 20 for simplicity
+        ]
+        await update.message.reply_text(
+            "Select a chapter (first 20 shown, send number for more):",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
         context.user_data["series_url"] = url
     except Exception as e:
         await update.message.reply_text(f"Error: {e}")
@@ -71,8 +83,12 @@ async def handle_series_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_chapter_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    chapter_url = query.data
-    chapter_name = chapter_url.split("/")[-1]
+    idx = int(query.data)
+    chapters = context.user_data.get("chapters")
+    if not chapters:
+        await query.edit_message_text("No chapters stored. Send series URL first.")
+        return
+    chapter_name, chapter_url = chapters[idx]
     pdf_path = os.path.join(CACHE_DIR, f"{chapter_name}.pdf")
 
     if os.path.exists(pdf_path):
@@ -80,15 +96,19 @@ async def handle_chapter_selection(update: Update, context: ContextTypes.DEFAULT
         await context.bot.send_document(query.message.chat.id, open(pdf_path, "rb"))
         return
 
-    await query.edit_message_text("Downloading chapter and converting to PDF...")
+    await query.edit_message_text(f"Downloading chapter '{chapter_name}' and converting to PDF...")
+
     img_urls = get_chapter_images(chapter_url)
     if not img_urls:
         await query.edit_message_text("No images found for this chapter.")
         return
 
-    # Download and convert PDF asynchronously
+    # Progress callback
+    async def progress_callback(idx_done, total):
+        await query.edit_message_text(f"Downloading page {idx_done}/{total}...")
+
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, download_images_to_pdf, img_urls, pdf_path)
+    await loop.run_in_executor(None, download_images_to_pdf, img_urls, pdf_path, lambda i, t: asyncio.run_coroutine_threadsafe(progress_callback(i, t), loop))
     await context.bot.send_document(query.message.chat.id, open(pdf_path, "rb"))
 
 # ------------------ Main ------------------
