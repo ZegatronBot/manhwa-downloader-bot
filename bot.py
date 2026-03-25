@@ -5,8 +5,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from fpdf import FPDF
 from io import BytesIO
+import os
 
-BOT_TOKEN = "8658154819:AAHe_8LLpT7SPz7qca6wKCDbsJqqe38hSok"
+BOT_TOKEN = os.environ["BOT_TOKEN"]
 BASE_URL = "https://olympustaff.com"
 
 # Step 1: /start command
