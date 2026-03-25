@@ -1,106 +1,99 @@
+# bot.py
 import requests
 from bs4 import BeautifulSoup
-from PIL import Image
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from fpdf import FPDF
 from io import BytesIO
-import os
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-TOKEN = "8658154819:AAHe_8LLpT7SPz7qca6wKCDbsJqqe38hSok"
+BOT_TOKEN = "8658154819:AAHe_8LLpT7SPz7qca6wKCDbsJqqe38hSok"
+BASE_URL = "https://olympustaff.com"
 
-# ---------------- SEARCH FUNCTION ----------------
-def search_site(keyword):
-    url = f"https://olympustaff.com/ajax/search?keyword={keyword}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    soup = BeautifulSoup(requests.get(url, headers=headers).text, "html.parser")
+# Step 1: /start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📚 Send me a manhwa name to search:")
+
+# Step 2: Search manhwa
+async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.message.text.strip().replace(" ", "+")
+    url = f"{BASE_URL}/search?q={query}"
+    resp = requests.get(url)
+    soup = BeautifulSoup(resp.text, "html.parser")
 
     results = []
-    for a in soup.find_all("a"):
-        title = a.find("h4")
-        if title:
-            results.append((title.text.strip(), a.get("href")))
-    return results[:10]
+    for a in soup.select("a.series-title"):  # adapt selector if needed
+        title = a.text.strip()
+        link = a['href']
+        results.append((title, link))
 
-# ---------------- GET CHAPTERS ----------------
-def get_chapters(series_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    soup = BeautifulSoup(requests.get(series_url, headers=headers).text, "html.parser")
-
-    chapters = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = a.text.strip()
-        if "/series/" in href and "chapter" in text.lower():
-            chapters.append((text, href))
-    chapters = chapters[::-1]  # Chapter 1 first
-    return chapters[:20]
-
-# ---------------- EXTRACT IMAGES ----------------
-def extract_images(chapter_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    soup = BeautifulSoup(requests.get(chapter_url, headers=headers).text, "html.parser")
-
-    images = []
-    for img in soup.find_all("img", class_="manga-chapter-img"):
-        images.append(img["src"])
-    return images
-
-# ---------------- CREATE PDF ----------------
-def create_pdf(image_urls):
-    images = []
-    for url in image_urls:
-        resp = requests.get(url)
-        img = Image.open(BytesIO(resp.content)).convert("RGB")
-        images.append(img)
-
-    pdf_path = "chapter.pdf"
-    if images:
-        images[0].save(pdf_path, save_all=True, append_images=images[1:])
-    return pdf_path
-
-# ---------------- TELEGRAM BOT ----------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send me the name of the manhwa you want to search:")
-
-async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyword = update.message.text
-    results = search_site(keyword)
     if not results:
-        await update.message.reply_text("No results found.")
+        await update.message.reply_text("❌ No results found.")
         return
 
-    buttons = [[InlineKeyboardButton(title, callback_data=f"series|{link}")] for title, link in results]
-    await update.message.reply_text("📚 Search results:", reply_markup=InlineKeyboardMarkup(buttons))
+    buttons = [
+        [InlineKeyboardButton(r[0], callback_data=f"m_{i}")] for i, r in enumerate(results)
+    ]
+    context.user_data['search_results'] = results
+    await update.message.reply_text("🔍 Search results:", reply_markup=InlineKeyboardMarkup(buttons))
 
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Step 3: Show chapters
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
 
-    if data.startswith("series|"):
-        series_url = data.split("|")[1]
-        chapters = get_chapters(series_url)
+    data = query.data
+    if data.startswith("m_"):  # manhwa selected
+        idx = int(data.split("_")[1])
+        title, link = context.user_data['search_results'][idx]
+        resp = requests.get(link)
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        chapters = []
+        for a in soup.select("a.chapter-title"):  # adapt selector if needed
+            chap_title = a.text.strip()
+            chap_link = a['href']
+            chapters.append((chap_title, chap_link))
+
         if not chapters:
-            await query.edit_message_text("No chapters found.")
+            await query.edit_message_text("❌ No chapters found.")
             return
 
-        buttons = [[InlineKeyboardButton(title, callback_data=f"chap|{link}")] for title, link in chapters]
-        await query.edit_message_text("📖 Choose chapter:", reply_markup=InlineKeyboardMarkup(buttons))
+        buttons = [
+            [InlineKeyboardButton(c[0], callback_data=f"c_{i}")] for i, c in enumerate(chapters)
+        ]
+        context.user_data['chapters'] = chapters
+        await query.edit_message_text("📖 Select chapter:", reply_markup=InlineKeyboardMarkup(buttons))
 
-    elif data.startswith("chap|"):
-        chapter_url = data.split("|")[1]
-        await query.edit_message_text("Downloading chapter, please wait...")
-        images = extract_images(chapter_url)
-        pdf_path = create_pdf(images)
-        await query.message.reply_document(open(pdf_path, "rb"))
-        os.remove(pdf_path)
+    elif data.startswith("c_"):  # chapter selected
+        idx = int(data.split("_")[1])
+        chap_title, chap_link = context.user_data['chapters'][idx]
 
-# ---------------- RUN BOT ----------------
-app = ApplicationBuilder().token(TOKEN).build()
+        await query.edit_message_text(f"⬇️ Downloading {chap_title} ...")
 
+        # Fetch chapter images
+        resp = requests.get(chap_link)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        images = [img['src'] for img in soup.select("div.image_list img")]
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(0)
+
+        for img_url in images:
+            img_data = requests.get(img_url).content
+            pdf.add_page()
+            pdf.image(BytesIO(img_data), x=0, y=0, w=210, h=297)  # A4 size
+
+        pdf_buffer = BytesIO()
+        pdf.output(pdf_buffer)
+        pdf_buffer.seek(0)
+
+        await query.message.reply_document(document=pdf_buffer, filename=f"{chap_title}.pdf")
+
+# Main
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search))
-app.add_handler(CallbackQueryHandler(button))
+app.add_handler(CommandHandler("help", start))
+app.add_handler(CommandHandler("search", search))
+app.add_handler(CallbackQueryHandler(button_handler))
 
-print("Bot is running...")
 app.run_polling()
