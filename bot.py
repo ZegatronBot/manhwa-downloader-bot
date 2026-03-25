@@ -1,147 +1,116 @@
-import requests
-import asyncio
 import os
+import requests
 from bs4 import BeautifulSoup
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandler, filters, ContextTypes
-from PIL import Image
-from io import BytesIO
+from fpdf import FPDF
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
+import time
 
-BOT_TOKEN = "8658154819:AAHe_8LLpT7SPz7qca6wKCDbsJqqe38hSok"
+TOKEN = "8658154819:AAHe_8LLpT7SPz7qca6wKCDbsJqqe38hSok"
+CACHE_DIR = "cached_pdfs"
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR)
 
-CACHE_DIR = "cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-
-# 🔍 Search
-def search_site(keyword):
-    url = f"https://olympustaff.com/ajax/search?keyword={keyword}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    soup = BeautifulSoup(requests.get(url, headers=headers).text, "html.parser")
-
-    for a in soup.find_all("a"):
-        return a.get("href")
-
-    return None
-
-
-# 📚 Get chapters list
+# ------------------ Utilities ------------------
 def get_chapters(series_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    soup = BeautifulSoup(requests.get(series_url, headers=headers).text, "html.parser")
-
+    """Detect all chapters perfectly and sort them by number."""
+    soup = BeautifulSoup(requests.get(series_url, headers=HEADERS).text, "html.parser")
     chapters = []
-
-    for a in soup.find_all("a", href=True):
+    for a in soup.select("a[href*='/series/']"):
         href = a["href"]
-        if "/series/" in href and href != series_url:
-            title = a.text.strip()
-            chapters.append((title, href))
+        title = a.get_text(strip=True)
+        if "chapter" in title.lower() or title.lower().startswith("ch"):
+            try:
+                num = float(title.lower().replace("chapter", "").replace("ch", "").strip())
+            except:
+                num = 0
+            chapters.append((num, title, href))
+    chapters.sort(key=lambda x: x[0])
+    return [(t[1], t[2]) for t in chapters]
 
-    return chapters[:10]  # limit
+def get_chapter_images(chapter_url):
+    """Extract all image URLs of a chapter."""
+    soup = BeautifulSoup(requests.get(chapter_url, headers=HEADERS).text, "html.parser")
+    imgs = []
+    for img in soup.select(".reading-content img.manga-chapter-img"):
+        src = img.get("src")
+        if src:
+            imgs.append(src)
+    return imgs
 
+def download_images_to_pdf(img_urls, pdf_path, update=None, chat_id=None, context=None):
+    """Download images and convert to PDF with progress."""
+    pdf = FPDF()
+    total = len(img_urls)
+    for idx, url in enumerate(img_urls, 1):
+        img_data = requests.get(url, headers=HEADERS).content
+        img_path = f"temp_{idx}.webp"
+        with open(img_path, "wb") as f:
+            f.write(img_data)
+        pdf.add_page()
+        pdf.image(img_path, x=0, y=0, w=210)  # full A4 width
+        os.remove(img_path)
+        if update and context:
+            progress = int((idx / total) * 100)
+            context.bot.send_message(chat_id, f"Progress: {progress}%")
+            time.sleep(0.2)  # delay between updates
+    pdf.output(pdf_path)
 
-# 🖼 Extract images
-def extract_images(chapter_url):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    soup = BeautifulSoup(requests.get(chapter_url, headers=headers).text, "html.parser")
+# ------------------ Bot Handlers ------------------
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
+        "Send the series URL to get the chapter list."
+    )
 
-    return [img["src"] for img in soup.find_all("img", class_="manga-chapter-img")]
+def handle_series_url(update: Update, context: CallbackContext):
+    url = update.message.text.strip()
+    try:
+        chapters = get_chapters(url)
+        if not chapters:
+            update.message.reply_text("No chapters found.")
+            return
+        buttons = [
+            [InlineKeyboardButton(t[0], callback_data=t[1])] for t in chapters
+        ]
+        update.message.reply_text(
+            "Select a chapter:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        context.user_data["series_url"] = url
+    except Exception as e:
+        update.message.reply_text(f"Error: {e}")
 
-
-# 📄 Create PDF
-def create_pdf(image_urls, filename):
-    images = []
-
-    for url in image_urls:
-        img_data = requests.get(url).content
-        img = Image.open(BytesIO(img_data)).convert("RGB")
-        images.append(img)
-
-    if images:
-        images[0].save(filename, save_all=True, append_images=images[1:])
-
-
-# 💬 Handle search
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyword = update.message.text.strip()
-    msg = await update.message.reply_text("🔍 Searching...")
-
-    series_url = search_site(keyword)
-
-    if not series_url:
-        await msg.edit_text("❌ No results")
-        return
-
-    chapters = get_chapters(series_url)
-
-    if not chapters:
-        await msg.edit_text("❌ No chapters found")
-        return
-
-    buttons = [
-        [InlineKeyboardButton(f"{i+1}. {c[0]}", callback_data=c[1])]
-        for i, c in enumerate(chapters)
-    ]
-
-    await msg.edit_text("📚 Choose a chapter:", reply_markup=InlineKeyboardMarkup(buttons))
-
-
-# 🔘 Handle chapter click
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_chapter_selection(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()
-
+    query.answer()
     chapter_url = query.data
-    msg = await query.edit_message_text("📥 Preparing...")
-
-    # cache name
-    file_id = chapter_url.split("/")[-1]
-    pdf_path = f"{CACHE_DIR}/{file_id}.pdf"
-
-    # ✅ CACHE CHECK
+    chapter_name = chapter_url.split("/")[-1]
+    pdf_path = os.path.join(CACHE_DIR, f"{chapter_name}.pdf")
+    
     if os.path.exists(pdf_path):
-        await msg.edit_text("⚡ إرسال من الكاش...")
-        await query.message.reply_document(open(pdf_path, "rb"))
+        query.edit_message_text("PDF already cached. Sending...")
+        context.bot.send_document(query.message.chat.id, open(pdf_path, "rb"))
         return
 
-    await msg.edit_text("📥 Downloading images...")
-
-    images = extract_images(chapter_url)
-
-    if not images:
-        await msg.edit_text("❌ No images found")
+    query.edit_message_text("Downloading chapter and converting to PDF...")
+    img_urls = get_chapter_images(chapter_url)
+    if not img_urls:
+        query.edit_message_text("No images found for this chapter.")
         return
+    download_images_to_pdf(img_urls, pdf_path, update, query.message.chat.id, context)
+    context.bot.send_document(query.message.chat.id, open(pdf_path, "rb"))
 
-    # 📊 progress
-    total = len(images)
-    pil_images = []
+# ------------------ Main ------------------
+def main():
+    updater = Updater(TOKEN)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(filters=None, callback=handle_series_url))
+    dp.add_handler(CallbackQueryHandler(handle_chapter_selection))
+    updater.start_polling()
+    updater.idle()
 
-    for i, url in enumerate(images):
-        img_data = requests.get(url).content
-        img = Image.open(BytesIO(img_data)).convert("RGB")
-        pil_images.append(img)
-
-        if i % 3 == 0:
-            await msg.edit_text(f"📊 Downloading: {i+1}/{total}")
-            await asyncio.sleep(0.2)
-
-    await msg.edit_text("📄 Creating PDF...")
-
-    pil_images[0].save(pdf_path, save_all=True, append_images=pil_images[1:])
-
-    await msg.edit_text("📤 Sending...")
-
-    await query.message.reply_document(open(pdf_path, "rb"))
-
-    await msg.edit_text("✅ Done")
-
-
-# 🚀 Run bot
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-app.add_handler(CallbackQueryHandler(handle_button))
-
-app.run_polling()
+if __name__ == "__main__":
+    main()
