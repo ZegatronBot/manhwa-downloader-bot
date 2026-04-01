@@ -1,0 +1,7 @@
+<h2>Chapters</h2>
+
+{% for ch in chapters %}
+  <a href="/download?url={{ ch.link }}">
+    {{ ch.title }}
+  </a><br>
+{% endfor %}
