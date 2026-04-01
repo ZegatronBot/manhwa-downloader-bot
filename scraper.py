@@ -5,7 +5,7 @@ BASE = "https://olympustaff.com"
 
 def search_manga(query):
     url = f"{BASE}/series?search={query}"
-    res = requests.get(url, timeout=10)
+    res = requests.get(url)
     soup = BeautifulSoup(res.text, "html.parser")
 
     results = []
@@ -23,7 +23,7 @@ def search_manga(query):
 
 
 def get_chapters(series_url):
-    res = requests.get(series_url, timeout=10)
+    res = requests.get(series_url)
     soup = BeautifulSoup(res.text, "html.parser")
 
     chapters = []
@@ -41,14 +41,14 @@ def get_chapters(series_url):
 
 
 def get_images(chapter_url):
-    res = requests.get(chapter_url, timeout=10)
+    res = requests.get(chapter_url)
     soup = BeautifulSoup(res.text, "html.parser")
 
     images = []
 
     for img in soup.select("img"):
         src = img.get("src")
-        if src and "uploads/manga_" in src:
+        if "uploads/manga_" in src:
             images.append(src)
 
     return images
