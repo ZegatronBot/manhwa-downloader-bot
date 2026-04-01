@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, send_file
 from scraper import search_manga, get_chapters, get_images
 from pdf import images_to_pdf
+import os
+
 
 app = Flask(__name__)
 
@@ -33,4 +35,4 @@ def download():
     return send_file(pdf_file, as_attachment=True)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
