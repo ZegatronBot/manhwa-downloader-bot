@@ -6,7 +6,7 @@ def images_to_pdf(image_urls, output="chapter.pdf"):
     images = []
 
     for url in image_urls:
-        res = requests.get(url, timeout=10)
+        res = requests.get(url)
         img = Image.open(BytesIO(res.content)).convert("RGB")
         images.append(img)
 
