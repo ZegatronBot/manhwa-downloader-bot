@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoidManga | Reader & Downloader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0f19; --card: #151b2b; --text: #e2e8f0; --muted: #94a3b8;
+            --primary: #8b5cf6; --primary-hover: #7c3aed; --success: #10b981; --error: #ef4444;
+            --border: #1e293b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+        body { background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        header { text-align: center; margin-bottom: 25px; padding: 20px; background: var(--card); border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+        h1 { font-size: 2.4rem; color: var(--primary); margin-bottom: 6px; letter-spacing: -0.5px; }
+        header p { color: var(--muted); font-size: 1rem; }
+        
+        .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: var(--card); padding: 14px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border); }
+        .controls label { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+        .controls select, .controls input { padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: #0f172a; color: var(--text); font-size: 0.95rem; flex: 1; min-width: 150px; }
+        .controls input[type="text"] { min-width: 250px; }
+        .controls button { padding: 10px 20px; border: none; border-radius: 8px; background: var(--primary); color: white; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .controls button:hover { background: var(--primary-hover); }
+        
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 18px; }
+        .card { background: var(--card); border-radius: 12px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; border: 1px solid var(--border); text-decoration: none; color: inherit; display: block; }
+        .card:hover { transform: translateY(-4px); box-shadow: 0 8px 25px rgba(139, 92, 246, 0.2); border-color: var(--primary); }
+        .card img { width: 100%; height: 260px; object-fit: cover; display: block; background: #1e293b; }
+        .card-body { padding: 12px; }
+        .card-title { font-weight: 600; margin-bottom: 6px; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; text-align: start; }
+        .card-meta { font-size: 0.8rem; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; background: #334155; unicode-bidi: plaintext; }
+        .badge.ongoing { background: #064e3b; color: #a7f3d0; }
+        
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 30px 0; flex-wrap: wrap; }
+        .pagination button { padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); cursor: pointer; font-size: 0.9rem; }
+        .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pagination button.active { background: var(--primary); border-color: var(--primary); color: white; }
+        
+        /* 📖 Reader Styles */
+        .reader-overlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 900; overflow-y: auto; }
+        .reader-overlay.active { display: block; }
+        .reader-nav { position: sticky; top: 0; z-index: 10; background: rgba(11, 15, 25, 0.95); backdrop-filter: blur(5px); padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .reader-nav h2 { font-size: 1.1rem; color: var(--text); flex: 1; }
+        .reader-controls { display: flex; gap: 10px; align-items: center; }
+        .reader-controls input { width: 80px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); text-align: center; }
+        .reader-content { max-width: 850px; margin: 0 auto; min-height: 100vh; background: #05080f; padding-bottom: 50px; display: flex; flex-direction: column; }
+        .reader-content img { width: 100%; display: block; margin: 0 auto; background: #111; min-height: 200px; }
+        .reader-footer { padding: 20px; text-align: center; background: var(--card); border-top: 1px solid var(--border); }
+        .reader-footer .btn { min-width: 120px; margin: 0 5px; }
+        
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-success { background: var(--success); color: white; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { border-color: var(--primary); color: var(--primary); background: #1e293b; }
+        .btn-sm { padding: 6px 10px; font-size: 0.85rem; }
+
+        .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-weight: 500; transition: 0.2s; }
+        .back-link:hover { color: var(--primary); }
+
+        /* Detail Styles */
+        .detail-card { background: var(--card); border-radius: 16px; padding: 25px; border: 1px solid var(--border); }
+        .detail-grid { display: grid; grid-template-columns: 150px 1fr; gap: 25px; margin-bottom: 20px; }
+        .detail-cover { width: 150px; height: 220px; object-fit: cover; border-radius: 10px; border: 2px solid var(--border); background: #1e293b; }
+        .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .meta-item { background: #0f172a; padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
+        .meta-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+        .meta-value { font-weight: 600; unicode-bidi: plaintext; text-align: start; }
+        .description { margin-top: 20px; padding: 15px; background: #0f172a; border-radius: 10px; font-size: 0.9rem; line-height: 1.7; border: 1px solid var(--border); unicode-bidi: plaintext; white-space: pre-wrap; }
+        
+        .action-box { margin-top: 25px; padding: 20px; background: #0f172a; border-radius: 12px; border: 1px solid var(--border); display: grid; gap: 15px; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .input-ch { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: #0f172a; color: var(--text); margin-bottom: 5px; }
+        
+        /* 📚 Chapter List */
+        .chapter-section { margin-top: 25px; }
+        .chapter-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .chapter-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 8px; max-height: 500px; overflow-y: auto; padding: 10px; background: #0f172a; border-radius: 10px; border: 1px solid var(--border); }
+        .chapter-btn { display: block; text-align: center; padding: 10px 5px; font-size: 0.85rem; background: #1e293b; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text); transition: 0.2s; }
+        .chapter-btn:hover { background: var(--primary); border-color: var(--primary); color: white; transform: translateY(-2px); }
+        
+        .loading-spinner { text-align: center; padding: 40px; color: var(--muted); }
+        .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        #browseView, #detailView, #readerView { display: none; }
+        #browseView.active, #detailView.active, #readerView.active { display: block; }
+        
+        @media (max-width: 768px) {
+            .controls { flex-direction: column; align-items: stretch; }
+            .detail-grid { grid-template-columns: 1fr; text-align: center; }
+            .detail-cover { margin: 0 auto; }
+            .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+            .reader-nav { flex-direction: column; text-align: center; }
+            .reader-controls { width: 100%; justify-content: center; }
+            .meta { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Browse View -->
+<div id="browseView" class="active">
+    <div class="container">
+        <header><h1>VoidManga</h1><p>Browse, Read, & Download Manga</p></header>
+        <div class="controls">
+            <label>🔍 Search:</label>
+            <input type="text" id="searchInput" placeholder="Enter title..." onkeydown="if(event.key==='Enter') syncAndLoad()">
+            <label>📊 Sort:</label>
+            <select id="sortSelect" onchange="syncAndLoad()">
+                <option value="title_asc">Title (A-Z)</option>
+                <option value="title_desc">Title (Z-A)</option>
+                <option value="status_asc">Status</option>
+                <option value="type_asc">Type</option>
+                <option value="recent">Recent First</option>
+            </select>
+            <label>📄 Per Page:</label>
+            <select id="perPageSelect" onchange="syncAndLoad()">
+                <option value="10">10</option>
+                <option value="15" selected>15</option>
+                <option value="20">20</option>
+            </select>
+            <button onclick="syncAndLoad()">🔄 Refresh</button>
+        </div>
+        <div id="resultsArea" class="grid"></div>
+        <div class="pagination" id="pagination"></div>
+    </div>
+</div>
+
+<!-- Detail View -->
+<div id="detailView">
+    <div class="container">
+        <a href="/" class="back-link" style="margin-bottom:15px">← Back to Browse</a>
+        <div class="detail-card">
+            <div id="detailLoading" class="loading-spinner"><div class="spinner"></div><p>Loading details...</p></div>
+            <div id="detailContent" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Reader View -->
+<div id="readerView" class="reader-overlay">
+    <nav class="reader-nav">
+        <a href="#" onclick="closeReader()" class="back-link" style="color:var(--text)">← Exit</a>
+        <h2 id="readerTitle">Reading Chapter</h2>
+        <div class="reader-controls">
+            <button class="btn btn-outline" onclick="jumpToChapter()">Jump</button>
+            <input type="number" id="chJumpInput" placeholder="Ch #" min="1">
+        </div>
+    </nav>
+    <div class="reader-content" id="readerContent">
+        <div class="loading-spinner"><div class="spinner"></div><p>Loading images...</p></div>
+    </div>
+    <div class="reader-footer">
+        <div class="btn-group">
+            <button class="btn btn-primary" id="btnPrevCh" onclick="readerNav('prev')">⬅ Prev</button>
+            <button class="btn btn-primary" id="btnNextCh" onclick="readerNav('next')">Next ➡</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const $ = id => document.getElementById(id);
+    let readerState = { slug: '', ch: 1 };
+    let currentManga = { slug: '', title: '', chapters: 0 };
+
+    window.addEventListener('DOMContentLoaded', () => handleRoute(window.location.pathname));
+    window.addEventListener('popstate', () => handleRoute(window.location.pathname));
+
+    function handleRoute(path) {
+        if (path.startsWith('/read/')) {
+            const parts = path.split('/read/')[1].split('/');
+            openReader(parts[0], null, parseInt(parts[1]), true);
+        } else if (path.startsWith('/manga/')) {
+            initDetailView(decodeURIComponent(path.split('/manga/')[1]), true);
+        } else {
+            initBrowseView(true);
+        }
+    }
+
+    function initBrowseView(skipHistory) {
+        $('browseView').classList.add('active');
+        $('detailView').classList.remove('active');
+        $('readerView').classList.remove('active');
+        const p = new URLSearchParams(window.location.search);
+        $('sortSelect').value = p.get('sort') || 'title_asc';
+        $('perPageSelect').value = p.get('per_page') || '15';
+        if(p.get('search')) $('searchInput').value = p.get('search');
+        loadBrowse(parseInt(p.get('page')) || 1, skipHistory);
+    }
+
+    function syncURL(page) {
+        const url = new URL(window.location);
+        url.searchParams.set('page', page);
+        url.searchParams.set('per_page', $('perPageSelect').value);
+        url.searchParams.set('sort', $('sortSelect').value);
+        $('searchInput').value.trim() ? url.searchParams.set('search', $('searchInput').value) : url.searchParams.delete('search');
+        history.pushState({}, '', url);
+    }
+
+    function syncAndLoad() { loadBrowse(1); }
+
+    async function loadBrowse(page = 1, updateHistory = true) {
+        const q = $('searchInput').value.trim(), s = $('sortSelect').value, pp = parseInt($('perPageSelect').value);
+        if(updateHistory) syncURL(page);
+        $('resultsArea').innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+        try {
+            const params = new URLSearchParams({ page, per_page: pp, sort: s });
+            if(q) params.append('search', q);
+            const d = await fetch(`/api/browse?${params}`).then(r=>r.json());
+            $('resultsArea').innerHTML = d.data.length ? d.data.map(m => `
+                <a href="/manga/${m.slug}" class="card">
+                    <img src="${m.cover}" loading="lazy" onerror="this.src='https://via.placeholder.com/200x300?text=No+Cover'">
+                    <div class="card-body"><div class="card-title">${m.title}</div>
+                    <div class="card-meta"><span class="badge">${m.status||'?'}</span><span>${m.type||''}</span></div></div>
+                </a>`).join('') : '<p class="loading-spinner">📭 No results</p>';
+            
+            let pHTML = `<button ${!d.pagination.has_prev?'disabled':''} onclick="loadBrowse(${d.pagination.page-1})">« Prev</button>`;
+            pHTML += `<button class="active" onclick="loadBrowse(${d.pagination.page})">${d.pagination.page}/${d.pagination.total_pages}</button>`;
+            pHTML += `<button ${!d.pagination.has_next?'disabled':''} onclick="loadBrowse(${d.pagination.page+1})">Next »</button>`;
+            $('pagination').innerHTML = pHTML;
+        } catch(e) { $('resultsArea').innerHTML = `<p class="loading-spinner" style="color:var(--error)">❌ Error loading</p>`; }
+    }
+
+    async function initDetailView(slug, skipHistory) {
+        $('browseView').classList.remove('active');
+        $('readerView').classList.remove('active');
+        $('detailView').classList.add('active');
+        $('detailContent').style.display = 'none';
+        $('detailLoading').style.display = 'block';
+        currentManga.slug = slug;
+        
+        if(!skipHistory) history.pushState({}, '', `/manga/${slug}`);
+        document.title = `VoidManga | ${slug}`;
+
+        try {
+            const [detRes, chapRes] = await Promise.all([
+                fetch(`/api/details/${slug}`).then(r=>r.json()),
+                fetch(`/api/chapters/${slug}`).then(r=>r.json())
+            ]);
+
+            currentManga.title = detRes.title || slug;
+            currentManga.chapters = chapRes.total || 0;
+
+            $('detailContent').innerHTML = `
+                <div class="detail-grid">
+                    <img src="${detRes.cover_image || 'https://via.placeholder.com/200x300?text=No+Cover'}" class="detail-cover" onerror="this.src='https://via.placeholder.com/200x300?text=No+Cover'">
+                    <div>
+                        <h2 style="margin-bottom:15px; unicode-bidi: plaintext; text-align: start;">${detRes.title || 'Unknown Title'}</h2>
+                        <div class="meta">
+                            <div class="meta-item"><div class="meta-label">Status</div><div class="meta-value">${detRes.status || 'Unknown'}</div></div>
+                            <div class="meta-item"><div class="meta-label">Type</div><div class="meta-value">${detRes.type || 'Unknown'}</div></div>
+                            <div class="meta-item"><div class="meta-label">Artist</div><div class="meta-value">${detRes.artist || '-'}</div></div>
+                            <div class="meta-item"><div class="meta-label">Rating</div><div class="meta-value">${detRes.ratings || '-'}</div></div>
+                        </div>
+                    </div>
+                </div>
+                ${detRes.genres ? `<div style="margin:15px 0; font-size:0.9rem; color:var(--muted);"><strong>Genres:</strong> ${detRes.genres}</div>` : ''}
+                ${detRes.description ? `<div class="description">${detRes.description}</div>` : ''}
+                
+                <div class="action-box">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="openReader('${slug}', '${currentManga.title.replace(/'/g,"\\'")}', 1)">📖 Read Ch 1</button>
+                        <button class="btn btn-success" onclick="startDownload('${slug}', '${currentManga.title.replace(/'/g,"\\'")}')">⬇️ Download PDF</button>
+                    </div>
+                    <div>
+                        <label>Quick Jump / Download Range:</label>
+                        <input type="text" id="chInput" class="input-ch" placeholder="e.g. 5 or 1-10">
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="jumpRead()">Read</button>
+                            <button class="btn btn-success" onclick="startDownload('${slug}', '${currentManga.title.replace(/'/g,"\\'")}')">Download</button>
+                        </div>
+                    </div>
+                    <div id="dlStatus" style="display:none; text-align:center; margin-top:10px;">
+                        <div class="spinner" style="margin:0 auto 5px;"></div>
+                        <div id="dlText" style="font-size:0.9rem; color:var(--muted);">Generating PDF...</div>
+                    </div>
+                </div>
+
+                <div class="chapter-section">
+                    <div class="chapter-header">
+                        <h3>📖 Chapters (${chapRes.total || 0})</h3>
+                        ${chapRes.error ? `<button class="btn btn-outline btn-sm" onclick="initDetailView('${slug}', false)">🔄 Retry</button>` : ''}
+                    </div>
+                    ${chapRes.error ? `<p style="color:var(--error);font-size:0.9rem;margin-bottom:10px">${chapRes.error}</p>` : ''}
+                    <div id="chapterGrid" class="chapter-grid">
+                        ${chapRes.chapters ? chapRes.chapters.map(c => 
+                            `<a href="/read/${slug}/${c.num}" class="chapter-btn">Ch ${c.num}</a>`
+                        ).join('') : '<p class="loading-spinner">No chapters found or failed to load.</p>'}
+                    </div>
+                </div>`;
+
+            $('detailLoading').style.display = 'none';
+            $('detailContent').style.display = 'block';
+        } catch(e) {
+            $('detailContent').innerHTML = `<p style="color:var(--error);text-align:center">❌ Failed to load details: ${e.message}</p>`;
+            $('detailLoading').style.display = 'none';
+        }
+    }
+
+    function jumpRead() {
+        const v = $('chInput')?.value.trim();
+        if(!v) return;
+        const c = parseInt(v.replace('-','').split(',')[0]);
+        if(c) openReader(currentManga.slug, currentManga.title, c);
+    }
+
+    async function startDownload(slug, title) {
+    const ch = $('chInput')?.value.trim() || '1';
+    const statusDiv = $('dlStatus');
+    const textDiv = $('dlText');
+    
+    statusDiv.style.display = 'block';
+    textDiv.innerText = '🔄 Connecting to server...';
+    textDiv.style.color = 'var(--muted)';
+    
+    try {
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+        
+        const res = await fetch('/api/download', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slug, title, chapters: ch}),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({detail: 'Unknown error'}));
+            throw new Error(err.detail || `Server error: ${res.status}`);
+        }
+
+        textDiv.innerText = '⬇️ Downloading PDF...';
+        
+        // Get filename from headers
+        const dispo = res.headers.get('Content-Disposition');
+        const match = dispo && dispo.match(/filename\*?="?(.+?)"?$/);
+        const filename = match ? decodeURIComponent(match[1]) : 'manga.pdf';
+        
+        // Stream the blob with progress feedback
+        const reader = res.body.getReader();
+        const contentLength = +res.headers.get('Content-Length') || 0;
+        let received = 0;
+        const chunks = [];
+        
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            if (contentLength) {
+                const percent = Math.round((received / contentLength) * 100);
+                textDiv.innerText = `⬇️ ${percent}% - ${filename}`;
+            }
+        }
+        
+        // Create blob and trigger download
+        const blob = new Blob(chunks, {type: 'application/pdf'});
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        
+        textDiv.innerText = '✅ Download complete!';
+        textDiv.style.color = 'var(--success)';
+        setTimeout(() => statusDiv.style.display = 'none', 3000);
+        
+    } catch(e) {
+        console.error('Download error:', e);
+        textDiv.innerText = `❌ ${e.message || 'Download failed'}`;
+        textDiv.style.color = 'var(--error)';
+        
+        if (e.name === 'AbortError') {
+            textDiv.innerHTML += '<br><small>💡 Tip: Large chapters may take 1-2 minutes. Try downloading fewer chapters at once.</small>';
+        } else if (e.message.includes('NetworkError')) {
+            textDiv.innerHTML += '<br><small>💡 Tip: Check server console for errors. Restart uvicorn if needed.</small>';
+        }
+    }
+}
+
+    async function openReader(slug, title, ch, skipHistory = false) {
+        readerState.slug = slug;
+        readerState.ch = ch;
+        $('browseView').classList.remove('active');
+        $('detailView').classList.remove('active');
+        $('readerView').classList.add('active');
+        window.scrollTo(0,0);
+        
+        document.title = `VoidManga | ${title || `Chapter ${ch}`}`;
+        if (!skipHistory) history.pushState({ type: 'reader', slug, ch }, `Chapter ${ch}`, `/read/${slug}/${ch}`);
+        
+        $('chJumpInput').value = ch;
+        $('readerContent').innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>Loading images...</p></div>';
+        $('readerTitle').innerText = title ? `${title} - Ch ${ch}` : `Chapter ${ch}`;
+        
+        try {
+            const d = await fetch(`/api/chapter/${slug}/${ch}`).then(r => {
+                if (!r.ok) throw new Error(`Chapter ${ch} not found or blocked`);
+                return r.json();
+            });
+            
+            $('readerContent').innerHTML = d.images.map(im => 
+                `<img src="/api/image-proxy?url=${encodeURIComponent(im.url)}" loading="lazy" alt="Page ${im.page}">`
+            ).join('');
+            
+            $('btnPrevCh').disabled = (ch <= 1);
+            $('btnNextCh').disabled = false; 
+        } catch(e) {
+            $('readerContent').innerHTML = `<div class="loading-spinner" style="color:var(--error)">❌ ${e.message}</div>`;
+        }
+    }
+
+    function readerNav(dir) {
+        let nextCh = (dir === 'next') ? readerState.ch + 1 : readerState.ch - 1;
+        if(nextCh < 1) return;
+        openReader(readerState.slug, null, nextCh);
+    }
+
+    function jumpToChapter() {
+        const val = parseInt($('chJumpInput').value);
+        if(val && val > 0) openReader(readerState.slug, null, val);
+    }
+
+    function closeReader() {
+        $('readerView').classList.remove('active');
+        history.back();
+    }
+</script>
+</body>
+</html>
